@@ -1,0 +1,2 @@
+"""Boss Insight Assistant package."""
+
