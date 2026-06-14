@@ -101,6 +101,14 @@ Java中级开发工程师
     assert snapshot.conversation_list[2].last_message == "帅哥，问你个问题呗"
 
 
+def test_build_snapshot_from_dom_text_warns_when_no_message_content() -> None:
+    snapshot = build_snapshot_from_dom_text("首页\n职位\n公司\n登录", "BOSS直聘")
+
+    assert snapshot.window.found is True
+    assert snapshot.conversation_list == []
+    assert "DOM已连接，但没有识别到候选人或聊天内容，请确认专用浏览器停留在Boss消息页" in snapshot.diagnostics["warnings"]
+
+
 def test_dom_reader_returns_snapshot_from_active_boss_page() -> None:
     reader = BrowserDomSnapshotReader(page_provider=lambda: [FakePage("赵女士\n人事\n06月09日\n好的")])
 

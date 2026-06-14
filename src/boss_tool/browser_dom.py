@@ -180,6 +180,14 @@ def build_snapshot_from_dom_text(text: str, title: str) -> ScanSnapshot:
     snapshot.current_messages = _parse_dom_messages(lines, snapshot.current_candidate.name)
     if snapshot.conversation_list:
         snapshot.conversation_list[0].selected = True
+    if not (
+        snapshot.conversation_list
+        or snapshot.current_candidate.name
+        or snapshot.current_messages
+    ):
+        snapshot.diagnostics.setdefault("warnings", []).append(
+            "DOM已连接，但没有识别到候选人或聊天内容，请确认专用浏览器停留在Boss消息页"
+        )
     return snapshot
 
 
@@ -235,6 +243,8 @@ def _parse_dom_candidate(lines: list[str], conversations: list[ConversationSumma
 
 
 def _parse_dom_messages(lines: list[str], candidate_name: str) -> list[ChatMessage]:
+    if not candidate_name:
+        return []
     start = _message_start_index(lines, candidate_name)
     messages: list[ChatMessage] = []
     for line in lines[start:]:
