@@ -1,5 +1,6 @@
 from boss_tool.browser_dom import (
     BrowserDomSnapshotReader,
+    _join_visible_text_rows,
     build_snapshot_from_dom_text,
     extract_visible_text_from_page,
     start_dedicated_browser,
@@ -47,6 +48,19 @@ def test_extract_visible_text_from_page_prefers_structured_visible_nodes() -> No
     )
 
     assert extract_visible_text_from_page(page) == "赵女士\n鼎昌电子信息技术\n06月09日\n好的"
+
+
+def test_join_visible_text_rows_keeps_repeated_list_text() -> None:
+    rows = [
+        {"text": "赵女士", "top": 10, "left": 20},
+        {"text": "人事", "top": 20, "left": 20},
+        {"text": "好的", "top": 30, "left": 20},
+        {"text": "郭先生", "top": 40, "left": 20},
+        {"text": "人事", "top": 50, "left": 20},
+        {"text": "好的", "top": 60, "left": 20},
+    ]
+
+    assert _join_visible_text_rows(rows) == "赵女士\n人事\n好的\n郭先生\n人事\n好的"
 
 
 def test_build_snapshot_from_dom_text_extracts_conversations_and_chat() -> None:
@@ -211,3 +225,21 @@ def test_start_dedicated_browser_reuses_running_debug_browser() -> None:
 
     assert endpoint == "http://127.0.0.1:9223"
     assert calls == []
+
+
+def test_start_dedicated_browser_launches_detached_browser_profile() -> None:
+    calls = []
+
+    endpoint = start_dedicated_browser(
+        port=9224,
+        browser_finder=lambda: "msedge.exe",
+        process_launcher=lambda args: calls.append(args),
+        endpoint_checker=lambda _endpoint: False,
+    )
+
+    assert endpoint == "http://127.0.0.1:9224"
+    args = calls[0]
+    assert "--no-first-run" in args
+    assert "--no-default-browser-check" in args
+    assert any(arg.startswith("--remote-debugging-port=9224") for arg in args)
+    assert any(arg.startswith("--user-data-dir=") for arg in args)

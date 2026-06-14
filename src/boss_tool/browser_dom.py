@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import subprocess
+import sys
 from typing import Callable
 from urllib.request import urlopen
 
@@ -129,11 +130,20 @@ def start_dedicated_browser(
         browser_path,
         f"--remote-debugging-port={port}",
         f"--user-data-dir={user_data_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-backgrounding-occluded-windows",
         "--new-window",
         BOSS_URL,
     ]
     if process_launcher is None:
-        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        popen_kwargs = {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        subprocess.Popen(args, **popen_kwargs)
     else:
         process_launcher(args)
     return endpoint
@@ -162,12 +172,34 @@ def find_browser_executable() -> str:
 
 def extract_visible_text_from_page(page) -> str:
     try:
-        structured_text = page.evaluate(_VISIBLE_TEXT_SCRIPT)
-        if isinstance(structured_text, str) and structured_text.strip():
-            return structured_text.strip()
+        visible_rows = page.evaluate(_VISIBLE_TEXT_SCRIPT)
+        structured_text = _join_visible_text_rows(visible_rows)
+        if structured_text:
+            return structured_text
     except Exception:
         pass
     return page.locator("body").inner_text(timeout=1500).strip()
+
+
+def _join_visible_text_rows(rows: object) -> str:
+    if not isinstance(rows, list):
+        return rows.strip() if isinstance(rows, str) else ""
+    normalized = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        normalized.append(
+            {
+                "text": re.sub(r"\s+", " ", text),
+                "top": int(row.get("top") or 0),
+                "left": int(row.get("left") or 0),
+            }
+        )
+    normalized.sort(key=lambda item: (item["top"], item["left"]))
+    return "\n".join(item["text"] for item in normalized).strip()
 
 
 _VISIBLE_TEXT_SCRIPT = """
@@ -195,18 +227,7 @@ _VISIBLE_TEXT_SCRIPT = """
     rows.push({ text, top: Math.round(rect.top), left: Math.round(rect.left) });
   }
 
-  rows.sort((a, b) => (a.top - b.top) || (a.left - b.left));
-
-  const seen = new Set();
-  return rows
-    .map((row) => row.text)
-    .filter((text) => {
-      const key = text.trim();
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .join('\\n');
+  return rows;
 }
 """
 
