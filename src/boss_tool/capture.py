@@ -155,9 +155,13 @@ def segment_image(
 
 def title_matches_boss_window(title: str, keyword: str) -> bool:
     lowered = title.lower()
-    keyword_lower = keyword.lower()
-    web_markers = ("boss直聘", "zhipin", "zhipin.com", "boss", "沟通中")
-    return keyword_lower in lowered or any(marker in lowered for marker in web_markers)
+    if "boss insight assistant" in lowered:
+        return False
+    keyword_lower = keyword.lower().strip()
+    explicit_markers = ("boss直聘", "zhipin", "zhipin.com", "kanzhun", "看准")
+    if any(marker in lowered for marker in explicit_markers):
+        return True
+    return bool(keyword_lower and keyword_lower in lowered and "直聘" in lowered)
 
 
 def is_probably_web_boss_window(title: str) -> bool:

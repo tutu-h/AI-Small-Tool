@@ -9,10 +9,12 @@ def test_title_matches_boss_window_for_browser_page() -> None:
     assert title_matches_boss_window("BOSS直聘 - Google Chrome", "BOSS") is True
     assert title_matches_boss_window("zhipin.com 沟通中 - Microsoft Edge", "BOSS") is True
     assert title_matches_boss_window("招聘沟通 - BOSS直聘网页版", "BOSS") is True
+    assert title_matches_boss_window("BOSS直聘 - 招聘沟通 - Google Chrome", "BOSS直聘") is True
 
 
 def test_title_does_not_match_irrelevant_window() -> None:
     assert title_matches_boss_window("微信", "BOSS") is False
+    assert title_matches_boss_window("Boss Insight Assistant", "BOSS直聘") is False
 
 
 def test_detects_probably_web_boss_window() -> None:
