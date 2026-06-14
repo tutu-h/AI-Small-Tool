@@ -41,6 +41,20 @@ class FakeConfigStore:
         self.saved_config = config
 
 
+class DummyRoot:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def withdraw(self) -> None:
+        self.calls.append("withdraw")
+
+    def deiconify(self) -> None:
+        self.calls.append("deiconify")
+
+    def update_idletasks(self) -> None:
+        self.calls.append("update_idletasks")
+
+
 def test_build_pipeline_reuses_service_instances(tmp_path) -> None:
     root = tk.Tk()
     root.withdraw()
@@ -183,3 +197,35 @@ def test_save_config_falls_back_when_interval_var_cannot_be_read() -> None:
     assert app.config.monitor_interval_seconds == 5
     assert app.config.api_key == "secret"
     assert app.config_store.saved_config is app.config
+
+
+def test_window_scan_temporarily_hides_assistant_window() -> None:
+    app = BossToolApp.__new__(BossToolApp)
+    app.root = DummyRoot()
+    app.imported_image_path = None
+
+    app._prepare_window_for_scan()
+
+    assert app.root.calls == ["withdraw", "update_idletasks"]
+    assert app._root_hidden_for_scan is True
+
+
+def test_scan_result_restores_assistant_window() -> None:
+    app = BossToolApp.__new__(BossToolApp)
+    app.root = DummyRoot()
+    app._root_hidden_for_scan = True
+    snapshot = ScanSnapshot.empty()
+    rendered = []
+    app._record_scan_history = lambda item: None
+    app._render_snapshot = rendered.append
+    app.status_var = DummyVar()
+
+    class FinishedFuture:
+        def result(self):
+            return snapshot
+
+    app._handle_scan_result(FinishedFuture())
+
+    assert app.root.calls == ["deiconify"]
+    assert app._root_hidden_for_scan is False
+    assert rendered == [snapshot]
