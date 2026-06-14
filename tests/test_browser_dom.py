@@ -27,8 +27,26 @@ class FakePage:
         return "BOSS直聘 - 招聘沟通"
 
 
+class FakeStructuredPage(FakePage):
+    def __init__(self, text: str, structured_text: str) -> None:
+        super().__init__(text)
+        self.structured_text = structured_text
+
+    def evaluate(self, _script: str) -> str:
+        return self.structured_text
+
+
 def test_extract_visible_text_from_page_uses_body_text() -> None:
     assert extract_visible_text_from_page(FakePage("赵女士\n好的")) == "赵女士\n好的"
+
+
+def test_extract_visible_text_from_page_prefers_structured_visible_nodes() -> None:
+    page = FakeStructuredPage(
+        text="整页文本兜底",
+        structured_text="赵女士\n鼎昌电子信息技术\n06月09日\n好的",
+    )
+
+    assert extract_visible_text_from_page(page) == "赵女士\n鼎昌电子信息技术\n06月09日\n好的"
 
 
 def test_build_snapshot_from_dom_text_extracts_conversations_and_chat() -> None:

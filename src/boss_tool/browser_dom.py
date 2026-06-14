@@ -161,7 +161,54 @@ def find_browser_executable() -> str:
 
 
 def extract_visible_text_from_page(page) -> str:
+    try:
+        structured_text = page.evaluate(_VISIBLE_TEXT_SCRIPT)
+        if isinstance(structured_text, str) and structured_text.strip():
+            return structured_text.strip()
+    except Exception:
+        pass
     return page.locator("body").inner_text(timeout=1500).strip()
+
+
+_VISIBLE_TEXT_SCRIPT = """
+() => {
+  const ignoredTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS']);
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const rows = [];
+
+  function isVisibleElement(element) {
+    if (!element || ignoredTags.has(element.tagName)) return false;
+    const style = window.getComputedStyle(element);
+    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
+      return false;
+    }
+    const rect = element.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  while (walker.nextNode()) {
+    const text = walker.currentNode.nodeValue.replace(/\\s+/g, ' ').trim();
+    if (!text) continue;
+    const element = walker.currentNode.parentElement;
+    if (!isVisibleElement(element)) continue;
+    const rect = element.getBoundingClientRect();
+    rows.push({ text, top: Math.round(rect.top), left: Math.round(rect.left) });
+  }
+
+  rows.sort((a, b) => (a.top - b.top) || (a.left - b.left));
+
+  const seen = new Set();
+  return rows
+    .map((row) => row.text)
+    .filter((text) => {
+      const key = text.trim();
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join('\\n');
+}
+"""
 
 
 def build_snapshot_from_dom_text(text: str, title: str) -> ScanSnapshot:
