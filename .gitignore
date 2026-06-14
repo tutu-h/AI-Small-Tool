@@ -8,3 +8,4 @@ src/*.egg-info/
 build/
 dist/
 BossInsightAssistant_EXE/
+BossInsightAssistant_EXE_新版/

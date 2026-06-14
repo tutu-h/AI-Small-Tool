@@ -5,6 +5,7 @@ from boss_tool.browser_dom import (
     extract_visible_text_from_page,
     start_dedicated_browser,
 )
+from boss_tool import browser_dom
 
 
 class FakeLocator:
@@ -211,6 +212,44 @@ def test_dom_reader_returns_not_found_when_no_boss_page() -> None:
 
     assert snapshot.window.found is False
     assert "未连接到 Boss 网页 DOM" in snapshot.diagnostics["warnings"][0]
+
+
+def test_load_pages_from_cdp_reads_devtools_targets_without_playwright(monkeypatch) -> None:
+    calls = []
+
+    monkeypatch.setattr(
+        browser_dom,
+        "_load_devtools_targets",
+        lambda endpoint: [
+            {
+                "type": "page",
+                "title": "BOSS直聘 - 招聘沟通",
+                "url": "https://www.zhipin.com/web/geek/chat",
+                "webSocketDebuggerUrl": "ws://127.0.0.1:9222/devtools/page/1",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        browser_dom,
+        "_evaluate_devtools_expression",
+        lambda ws_url, expression: calls.append((ws_url, expression))
+        or [
+            {"text": "赵女士", "top": 10, "left": 20},
+            {"text": "鼎昌电子信息技术", "top": 20, "left": 20},
+        ],
+    )
+
+    pages = BrowserDomSnapshotReader()._load_pages_from_cdp()
+
+    assert pages[0].title() == "BOSS直聘 - 招聘沟通"
+    assert pages[0].url == "https://www.zhipin.com/web/geek/chat"
+    assert pages[0].locator("body").inner_text() == "赵女士\n鼎昌电子信息技术"
+    assert calls == [
+        (
+            "ws://127.0.0.1:9222/devtools/page/1",
+            browser_dom._VISIBLE_TEXT_EXPRESSION,
+        )
+    ]
 
 
 def test_start_dedicated_browser_reuses_running_debug_browser() -> None:

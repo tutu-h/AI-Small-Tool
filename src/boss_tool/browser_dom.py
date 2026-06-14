@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
+import struct
 from pathlib import Path
 import re
+import os
+import socket
 import subprocess
 import sys
 from typing import Callable
-from urllib.request import urlopen
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 from boss_tool.models import CandidateProfile, ChatMessage, ConversationSummary, ScanSnapshot
 
@@ -68,15 +75,23 @@ class BrowserDomSnapshotReader:
         return build_snapshot_from_dom_text(text, title)
 
     def _load_pages_from_cdp(self) -> list[object]:
-        from playwright.sync_api import sync_playwright
-
-        with sync_playwright() as playwright:
-            browser = playwright.chromium.connect_over_cdp(self.endpoint)
-            pages = [page for context in browser.contexts for page in context.pages]
-            snapshots = []
-            for page in pages:
-                snapshots.append(_PageTextSnapshot.from_page(page))
-            return snapshots
+        snapshots = []
+        for target in _load_devtools_targets(self.endpoint):
+            if target.get("type") != "page":
+                continue
+            ws_url = str(target.get("webSocketDebuggerUrl") or "")
+            if not ws_url:
+                continue
+            rows = _evaluate_devtools_expression(ws_url, _VISIBLE_TEXT_EXPRESSION)
+            text = _join_visible_text_rows(rows)
+            snapshots.append(
+                _PageTextSnapshot(
+                    str(target.get("title") or ""),
+                    str(target.get("url") or ""),
+                    text,
+                )
+            )
+        return snapshots
 
     @staticmethod
     def _pick_boss_page(pages: list[object]):
@@ -202,8 +217,8 @@ def _join_visible_text_rows(rows: object) -> str:
     return "\n".join(item["text"] for item in normalized).strip()
 
 
-_VISIBLE_TEXT_SCRIPT = """
-() => {
+_VISIBLE_TEXT_EXPRESSION = """
+(() => {
   const ignoredTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'SVG', 'CANVAS']);
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const rows = [];
@@ -228,8 +243,136 @@ _VISIBLE_TEXT_SCRIPT = """
   }
 
   return rows;
-}
+})()
 """
+
+
+_VISIBLE_TEXT_SCRIPT = f"""
+() => {{
+  return {_VISIBLE_TEXT_EXPRESSION};
+}}
+"""
+
+
+def _load_devtools_targets(endpoint: str) -> list[dict[str, object]]:
+    request = Request(f"{endpoint.rstrip('/')}/json", headers={"Cache-Control": "no-cache"})
+    with urlopen(request, timeout=1.5) as response:
+        payload = response.read().decode("utf-8")
+    targets = json.loads(payload)
+    return targets if isinstance(targets, list) else []
+
+
+def _evaluate_devtools_expression(ws_url: str, expression: str) -> object:
+    parsed = urlparse(ws_url)
+    if parsed.scheme != "ws":
+        raise ValueError("仅支持本地 ws DevTools 连接")
+    host = parsed.hostname or "127.0.0.1"
+    port = parsed.port or 80
+    path = parsed.path or "/"
+    if parsed.query:
+        path = f"{path}?{parsed.query}"
+    with socket.create_connection((host, port), timeout=2) as sock:
+        sock.settimeout(2)
+        _websocket_handshake(sock, host, port, path)
+        command = {
+            "id": 1,
+            "method": "Runtime.evaluate",
+            "params": {
+                "expression": expression,
+                "returnByValue": True,
+                "awaitPromise": False,
+            },
+        }
+        _websocket_send_text(sock, json.dumps(command, ensure_ascii=False))
+        while True:
+            message = _websocket_recv_text(sock)
+            data = json.loads(message)
+            if data.get("id") != 1:
+                continue
+            if "error" in data:
+                raise RuntimeError(str(data["error"]))
+            result = data.get("result", {}).get("result", {})
+            return result.get("value", "")
+
+
+def _websocket_handshake(sock: socket.socket, host: str, port: int, path: str) -> None:
+    key = base64.b64encode(os.urandom(16)).decode("ascii")
+    request = (
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: {host}:{port}\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        f"Sec-WebSocket-Key: {key}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "\r\n"
+    )
+    sock.sendall(request.encode("ascii"))
+    response = _recv_until(sock, b"\r\n\r\n").decode("latin1", errors="replace")
+    expected_accept = base64.b64encode(
+        hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode("ascii")).digest()
+    ).decode("ascii")
+    if " 101 " not in response or expected_accept not in response:
+        raise ConnectionError("DevTools WebSocket 握手失败")
+
+
+def _websocket_send_text(sock: socket.socket, text: str) -> None:
+    payload = text.encode("utf-8")
+    header = bytearray([0x81])
+    length = len(payload)
+    if length < 126:
+        header.append(0x80 | length)
+    elif length <= 0xFFFF:
+        header.append(0x80 | 126)
+        header.extend(struct.pack("!H", length))
+    else:
+        header.append(0x80 | 127)
+        header.extend(struct.pack("!Q", length))
+    mask = os.urandom(4)
+    header.extend(mask)
+    masked = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    sock.sendall(bytes(header) + masked)
+
+
+def _websocket_recv_text(sock: socket.socket) -> str:
+    first, second = _recv_exact(sock, 2)
+    opcode = first & 0x0F
+    masked = bool(second & 0x80)
+    length = second & 0x7F
+    if length == 126:
+        length = struct.unpack("!H", _recv_exact(sock, 2))[0]
+    elif length == 127:
+        length = struct.unpack("!Q", _recv_exact(sock, 8))[0]
+    mask = _recv_exact(sock, 4) if masked else b""
+    payload = _recv_exact(sock, length)
+    if masked:
+        payload = bytes(byte ^ mask[index % 4] for index, byte in enumerate(payload))
+    if opcode == 0x8:
+        raise ConnectionError("DevTools WebSocket 已关闭")
+    if opcode != 0x1:
+        return _websocket_recv_text(sock)
+    return payload.decode("utf-8")
+
+
+def _recv_exact(sock: socket.socket, length: int) -> bytes:
+    chunks = []
+    remaining = length
+    while remaining:
+        chunk = sock.recv(remaining)
+        if not chunk:
+            raise ConnectionError("DevTools WebSocket 连接中断")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _recv_until(sock: socket.socket, marker: bytes) -> bytes:
+    data = bytearray()
+    while marker not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise ConnectionError("DevTools WebSocket 握手连接中断")
+        data.extend(chunk)
+    return bytes(data)
 
 
 def build_snapshot_from_dom_text(text: str, title: str) -> ScanSnapshot:
