@@ -202,19 +202,23 @@ def _parse_dom_conversations(lines: list[str]) -> list[ConversationSummary]:
         if _is_current_header(lines, index):
             index += 1
             continue
-        company_job = _join_until_time(lines, index + 1)
-        time_index = index + 1 + len(company_job)
+        company_job_with_badge = _join_until_time(lines, index + 1)
+        company_job, unread_count = _extract_trailing_unread_badge(company_job_with_badge)
+        time_index = index + 1 + len(company_job_with_badge)
         if time_index >= len(lines) or not TIME_OR_DATE_PATTERN.match(lines[time_index]):
             index += 1
             continue
         last_message = _next_message_after_time(lines, time_index + 1)
+        if unread_count == 0 and _message_has_unread_prefix(last_message):
+            unread_count = 1
+        last_message = _strip_read_status_prefix(last_message)
         conversations.append(
             ConversationSummary(
                 name=line,
                 job_title=" ".join(company_job),
                 last_message=last_message,
                 time_label=lines[time_index],
-                unread_count=0,
+                unread_count=unread_count,
                 source="browser_dom",
                 confidence=0.88,
             )
@@ -279,7 +283,9 @@ def _join_until_time(lines: list[str], start: int) -> list[str]:
     for line in lines[start:start + 5]:
         if TIME_OR_DATE_PATTERN.match(line):
             break
-        if line in CONTROL_TEXTS or NAME_PATTERN.match(line):
+        if line in CONTROL_TEXTS and not _is_unread_word(line):
+            break
+        if NAME_PATTERN.match(line):
             break
         items.append(line)
     return items
@@ -291,7 +297,7 @@ def _next_message_after_time(lines: list[str], start: int) -> str:
             continue
         if TIME_OR_DATE_PATTERN.match(line) or NAME_PATTERN.match(line):
             continue
-        return line.removeprefix("[已读]").strip()
+        return _strip_read_status_prefix(line)
     return ""
 
 
@@ -354,15 +360,49 @@ def _split_compact_conversation_row(line: str) -> list[str]:
     items.append(match.group("time"))
     message = (match.group("message") or "").strip()
     if message:
-        items.append(message.removeprefix("[已读]").strip())
+        items.append(_strip_read_status_prefix(message))
     return [item for item in items if item]
 
 
 def _split_company_job(text: str) -> list[str]:
+    parts = [part for part in text.split() if part]
+    company_job, unread_count = _extract_trailing_unread_badge(parts)
+    if unread_count:
+        return company_job + [str(unread_count)]
     for marker in ("人事主管", "招聘专员", "人事", "HR", "行政人事", "人力资源主管"):
         if text.endswith(marker) and len(text) > len(marker):
             return [text[: -len(marker)].strip(), marker]
     return [text]
+
+
+def _extract_trailing_unread_badge(items: list[str]) -> tuple[list[str], int]:
+    if not items:
+        return items, 0
+    last = items[-1].strip()
+    if _is_unread_word(last):
+        return items[:-1], 1
+    if _is_unread_count_token(last):
+        return items[:-1], int(last)
+    return items, 0
+
+
+def _is_unread_word(text: str) -> bool:
+    return text == "未读"
+
+
+def _is_unread_count_token(text: str) -> bool:
+    if not re.fullmatch(r"\d{1,2}", text):
+        return False
+    value = int(text)
+    return 1 <= value <= 99
+
+
+def _message_has_unread_prefix(text: str) -> bool:
+    return text.startswith("[未读]")
+
+
+def _strip_read_status_prefix(text: str) -> str:
+    return re.sub(r"^\[(?:已读|未读)\]\s*", "", text).strip()
 
 
 def _safe_page_title(page) -> str:

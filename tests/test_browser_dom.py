@@ -101,6 +101,54 @@ Java中级开发工程师
     assert snapshot.conversation_list[2].last_message == "帅哥，问你个问题呗"
 
 
+def test_build_snapshot_from_dom_text_extracts_unread_count_from_separate_badge_line() -> None:
+    text = """
+赵女士
+鼎昌电子信息技术
+人事
+2
+06月09日
+[未读]好的
+郭先生
+武汉利正源科技
+人事主管
+未读
+昨天
+好的
+赵女士
+Java中级开发工程师
+8-10K
+西安
+好的
+"""
+
+    snapshot = build_snapshot_from_dom_text(text, "BOSS直聘 - 招聘沟通")
+
+    assert snapshot.conversation_list[0].unread_count == 2
+    assert snapshot.conversation_list[0].job_title == "鼎昌电子信息技术 人事"
+    assert snapshot.conversation_list[0].last_message == "好的"
+    assert snapshot.conversation_list[1].unread_count == 1
+
+
+def test_build_snapshot_from_dom_text_extracts_unread_count_from_compact_badge() -> None:
+    text = """
+赵女士 鼎昌电子信息技术 人事 3 06月09日 [未读]好的
+郭先生 武汉利正源科技 人事主管 未读 昨天 好的
+赵女士 Java中级开发工程师
+8-10K
+西安
+好的
+"""
+
+    snapshot = build_snapshot_from_dom_text(text, "BOSS直聘 - 招聘沟通")
+
+    assert [item.name for item in snapshot.conversation_list[:2]] == ["赵女士", "郭先生"]
+    assert snapshot.conversation_list[0].unread_count == 3
+    assert snapshot.conversation_list[0].last_message == "好的"
+    assert snapshot.conversation_list[1].unread_count == 1
+    assert snapshot.conversation_list[1].job_title == "武汉利正源科技 人事主管"
+
+
 def test_build_snapshot_from_dom_text_warns_when_no_message_content() -> None:
     snapshot = build_snapshot_from_dom_text("首页\n职位\n公司\n登录", "BOSS直聘")
 
