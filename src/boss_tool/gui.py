@@ -669,6 +669,8 @@ def read_var_value(variable, default=""):
 
 def build_scan_mode_label(diagnostics: dict, window_title: str) -> str:
     capture_mode = diagnostics.get("capture_mode")
+    if capture_mode == "browser_dom":
+        return "浏览器DOM"
     if capture_mode == "imported_image":
         return "导入截图"
     if diagnostics.get("is_web_boss"):
@@ -683,6 +685,7 @@ def build_scan_diagnostics_content(diagnostics: dict) -> str:
     used_regions = _format_region_names(diagnostics.get("vision_regions_used", []))
     lines = [
         f"布局：{diagnostics.get('layout_mode', '未知')}",
+        _build_dom_status_line(diagnostics),
         f"建议视觉兜底：{'是' if diagnostics.get('vision_recommended') else '否'}",
         f"兜底已生效：{'是' if diagnostics.get('fallback_used') else '否'}",
         f"已尝试区域：{attempted_regions or '无'}",
@@ -692,6 +695,15 @@ def build_scan_diagnostics_content(diagnostics: dict) -> str:
     if warnings:
         lines.append("提示：" + "；".join(str(item) for item in warnings))
     return "\n".join(lines)
+
+
+def _build_dom_status_line(diagnostics: dict) -> str:
+    if diagnostics.get("capture_mode") == "browser_dom":
+        count = diagnostics.get("dom_line_count", 0)
+        return f"DOM读取：成功，{count}行文本"
+    if diagnostics.get("dom_fallback_used"):
+        return "DOM读取：失败，已回退OCR"
+    return "DOM读取：未启用"
 
 
 def _format_region_names(region_names) -> str:

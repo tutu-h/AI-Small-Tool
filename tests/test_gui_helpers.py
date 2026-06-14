@@ -19,6 +19,11 @@ def test_build_scan_mode_label_marks_imported_image() -> None:
     assert build_scan_mode_label(diagnostics, "sample.png") == "导入截图"
 
 
+def test_build_scan_mode_label_marks_browser_dom() -> None:
+    diagnostics = {"capture_mode": "browser_dom", "is_web_boss": True}
+    assert build_scan_mode_label(diagnostics, "BOSS直聘 - 招聘沟通") == "浏览器DOM"
+
+
 def test_chat_panel_labels_exact_messages_as_current_open_conversation() -> None:
     snapshot = ScanSnapshot.empty()
     snapshot.conversation_list = [
@@ -89,6 +94,32 @@ def test_scan_diagnostics_content_includes_warnings() -> None:
     content = build_scan_diagnostics_content(diagnostics)
 
     assert "提示：未找到 Boss 直聘窗口；请先打开 Boss 直聘客户端或网页版消息页" in content
+
+
+def test_scan_diagnostics_content_shows_dom_status() -> None:
+    content = build_scan_diagnostics_content(
+        {
+            "capture_mode": "browser_dom",
+            "layout_mode": "browser_dom",
+            "dom_line_count": 45,
+            "dom_fallback_used": False,
+        }
+    )
+
+    assert "DOM读取：成功，45行文本" in content
+
+
+def test_scan_diagnostics_content_shows_dom_fallback() -> None:
+    content = build_scan_diagnostics_content(
+        {
+            "capture_mode": "live_window",
+            "layout_mode": "web",
+            "dom_fallback_used": True,
+            "warnings": ["未连接到 Boss 网页 DOM"],
+        }
+    )
+
+    assert "DOM读取：失败，已回退OCR" in content
 
 
 def test_build_history_entries_keeps_recent_scan_summary_first() -> None:

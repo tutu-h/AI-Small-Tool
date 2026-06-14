@@ -2,6 +2,7 @@ from boss_tool.browser_dom import (
     BrowserDomSnapshotReader,
     build_snapshot_from_dom_text,
     extract_visible_text_from_page,
+    start_dedicated_browser,
 )
 
 
@@ -122,3 +123,17 @@ def test_dom_reader_returns_not_found_when_no_boss_page() -> None:
 
     assert snapshot.window.found is False
     assert "未连接到 Boss 网页 DOM" in snapshot.diagnostics["warnings"][0]
+
+
+def test_start_dedicated_browser_reuses_running_debug_browser() -> None:
+    calls = []
+
+    endpoint = start_dedicated_browser(
+        port=9223,
+        browser_finder=lambda: "msedge.exe",
+        process_launcher=lambda _args: calls.append(_args),
+        endpoint_checker=lambda _endpoint: True,
+    )
+
+    assert endpoint == "http://127.0.0.1:9223"
+    assert calls == []

@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 import subprocess
 from typing import Callable
+from urllib.request import urlopen
 
 from boss_tool.models import CandidateProfile, ChatMessage, ConversationSummary, ScanSnapshot
 
@@ -111,8 +112,17 @@ class _TextLocator:
         return self.text
 
 
-def start_dedicated_browser(port: int = DEFAULT_DEBUG_PORT) -> str:
-    browser_path = find_browser_executable()
+def start_dedicated_browser(
+    port: int = DEFAULT_DEBUG_PORT,
+    browser_finder: Callable[[], str] | None = None,
+    process_launcher: Callable[[list[str]], object] | None = None,
+    endpoint_checker: Callable[[str], bool] | None = None,
+) -> str:
+    endpoint = f"http://127.0.0.1:{port}"
+    checker = endpoint_checker or is_debug_endpoint_available
+    if checker(endpoint):
+        return endpoint
+    browser_path = (browser_finder or find_browser_executable)()
     user_data_dir = Path.home() / ".boss-insight-assistant" / "browser-profile"
     user_data_dir.mkdir(parents=True, exist_ok=True)
     args = [
@@ -122,8 +132,19 @@ def start_dedicated_browser(port: int = DEFAULT_DEBUG_PORT) -> str:
         "--new-window",
         BOSS_URL,
     ]
-    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    return f"http://127.0.0.1:{port}"
+    if process_launcher is None:
+        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+        process_launcher(args)
+    return endpoint
+
+
+def is_debug_endpoint_available(endpoint: str) -> bool:
+    try:
+        with urlopen(f"{endpoint}/json/version", timeout=0.5) as response:
+            return response.status == 200
+    except Exception:
+        return False
 
 
 def find_browser_executable() -> str:
