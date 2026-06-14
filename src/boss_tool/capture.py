@@ -43,6 +43,7 @@ class BossWindowCapture:
         snapshot.window.found = True
         snapshot.window.bounds = bounds
         is_web_boss = is_probably_web_boss_window(snapshot.window.title)
+        self.focus_window(window, snapshot)
         try:
             image = self.grab_image(bounds)
         except Exception as exc:
@@ -63,6 +64,14 @@ class BossWindowCapture:
 
     def grab_image(self, bounds: tuple[int, int, int, int]) -> Image.Image:
         return ImageGrab.grab(bbox=bounds, all_screens=True)
+
+    def focus_window(self, window: Any, snapshot: ScanSnapshot) -> None:
+        try:
+            window.set_focus()
+        except Exception as exc:
+            snapshot.diagnostics.setdefault("warnings", []).append(
+                f"激活 Boss 窗口失败: {exc}"
+            )
 
     def collect_ui_texts(self, window: Any) -> list[str]:
         try:

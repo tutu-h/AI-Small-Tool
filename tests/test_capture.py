@@ -54,6 +54,9 @@ class FakeRectangle:
 
 
 class FakeWindow:
+    def __init__(self) -> None:
+        self.set_focus_called = False
+
     def rectangle(self):
         return FakeRectangle()
 
@@ -63,14 +66,40 @@ class FakeWindow:
     def descendants(self):
         return []
 
+    def set_focus(self):
+        self.set_focus_called = True
+
 
 def test_window_capture_returns_warning_when_screenshot_fails() -> None:
     capture = BossWindowCapture(AppConfig())
-    capture._find_window = lambda: FakeWindow()
+    window = FakeWindow()
+    capture._find_window = lambda: window
     capture.grab_image = lambda _bounds: (_ for _ in ()).throw(RuntimeError("screen denied"))
 
     snapshot = capture.scan()
 
+    assert window.set_focus_called is True
     assert snapshot.window.found is True
     assert snapshot.diagnostics["regions"] == {}
     assert "窗口截图失败: screen denied" in snapshot.diagnostics["warnings"]
+
+
+def test_window_capture_keeps_scanning_when_focus_fails() -> None:
+    class FocusFailingWindow(FakeWindow):
+        def set_focus(self):
+            raise RuntimeError("focus denied")
+
+    capture = BossWindowCapture(AppConfig())
+    window = FocusFailingWindow()
+    capture._find_window = lambda: window
+    capture.grab_image = lambda _bounds: Image.new("RGB", (100, 100), color="white")
+
+    snapshot = capture.scan()
+
+    assert snapshot.window.found is True
+    assert "激活 Boss 窗口失败: focus denied" in snapshot.diagnostics["warnings"]
+    assert set(snapshot.diagnostics["regions"]) == {
+        "conversation_list",
+        "candidate_header",
+        "chat_body",
+    }

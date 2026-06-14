@@ -43,7 +43,6 @@ class BossToolApp:
         self.ocr_service = OcrService()
         self.analyzer: BailianClient | None = None
         self._service_signature: tuple[str, str, str, str] | None = None
-        self._root_hidden_for_scan = False
 
         self.base_url_var = tk.StringVar(value=self.config.base_url)
         self.api_key_var = tk.StringVar(value=self.config.api_key)
@@ -279,14 +278,12 @@ class BossToolApp:
             return
         self.status_var.set("扫描中...")
         pipeline = self._build_pipeline()
-        self._prepare_window_for_scan()
         self.scan_future = self.executor.submit(pipeline.run_scan)
         self.scan_future.add_done_callback(
             lambda future: self.root.after(0, self._handle_scan_result, future)
         )
 
     def _handle_scan_result(self, future: Future) -> None:
-        self._restore_window_after_scan()
         try:
             snapshot = future.result()
         except Exception as exc:
@@ -297,24 +294,6 @@ class BossToolApp:
         self._record_scan_history(snapshot)
         self._render_snapshot(snapshot)
         self.status_var.set("扫描完成")
-
-    def _prepare_window_for_scan(self) -> None:
-        if self.imported_image_path:
-            return
-        try:
-            self.root.withdraw()
-            self.root.update_idletasks()
-        except Exception:
-            return
-        self._root_hidden_for_scan = True
-
-    def _restore_window_after_scan(self) -> None:
-        if not getattr(self, "_root_hidden_for_scan", False):
-            return
-        try:
-            self.root.deiconify()
-        finally:
-            self._root_hidden_for_scan = False
 
     def _refresh_services(self) -> None:
         signature = (
