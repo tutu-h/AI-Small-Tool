@@ -30,6 +30,17 @@ class BossInsightPipeline:
         self._current_snapshot = snapshot
         if not snapshot.window.found:
             return snapshot
+        if snapshot.diagnostics.get("capture_mode") == "browser_dom":
+            self._mark_default_selected_conversation(snapshot)
+            snapshot.analysis = build_local_analysis(snapshot)
+            if self.analyzer is not None:
+                try:
+                    snapshot.analysis = self.analyzer.analyze_snapshot(snapshot)
+                except Exception as exc:
+                    snapshot.diagnostics.setdefault("warnings", []).append(str(exc))
+            snapshot.diagnostics["vision_recommended"] = False
+            snapshot.diagnostics["fallback_used"] = False
+            return snapshot
 
         regions = snapshot.diagnostics.get("regions", {})
         ui_texts = snapshot.diagnostics.get("ui_texts", [])

@@ -132,6 +132,24 @@ class ImageFileCapture:
         return snapshot
 
 
+class FallbackCapture:
+    def __init__(self, primary, fallback) -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.config = getattr(fallback, "config", None)
+
+    def scan(self) -> ScanSnapshot:
+        primary_snapshot = self.primary.scan()
+        if _has_useful_dom_snapshot(primary_snapshot):
+            return primary_snapshot
+        fallback_snapshot = self.fallback.scan()
+        warnings = primary_snapshot.diagnostics.get("warnings", [])
+        if warnings:
+            fallback_snapshot.diagnostics.setdefault("warnings", []).extend(warnings)
+        fallback_snapshot.diagnostics["dom_fallback_used"] = True
+        return fallback_snapshot
+
+
 def segment_image(
     image: Image.Image, layout_mode: str = "desktop"
 ) -> dict[str, CapturedRegion]:
@@ -160,6 +178,18 @@ def segment_image(
             ui_texts=[],
         )
     return captured
+
+
+def _has_useful_dom_snapshot(snapshot: ScanSnapshot) -> bool:
+    return (
+        snapshot.window.found
+        and snapshot.diagnostics.get("capture_mode") == "browser_dom"
+        and (
+            bool(snapshot.conversation_list)
+            or bool(snapshot.current_messages)
+            or bool(snapshot.current_candidate.name)
+        )
+    )
 
 
 def title_matches_boss_window(title: str, keyword: str) -> bool:

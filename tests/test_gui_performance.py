@@ -3,6 +3,7 @@ from __future__ import annotations
 import tkinter as tk
 
 from boss_tool.config import AppConfig, ConfigStore
+from boss_tool.capture import FallbackCapture
 from boss_tool.gui import BossToolApp
 from boss_tool.history import HistoryStore
 from boss_tool.models import CandidateProfile, ConversationSummary, ScanSnapshot
@@ -51,6 +52,7 @@ def test_build_pipeline_reuses_service_instances(tmp_path) -> None:
 
     assert first_pipeline.ocr_service is second_pipeline.ocr_service
     assert first_pipeline.analyzer is second_pipeline.analyzer
+    assert isinstance(first_pipeline.capture_service, FallbackCapture)
     root.destroy()
 
 

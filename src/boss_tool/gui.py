@@ -6,7 +6,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from boss_tool.bailian import BailianClient
-from boss_tool.capture import BossWindowCapture, ImageFileCapture
+from boss_tool.browser_dom import BrowserDomSnapshotReader, start_dedicated_browser
+from boss_tool.capture import BossWindowCapture, FallbackCapture, ImageFileCapture
 from boss_tool.config import AppConfig, ConfigStore, sanitize_config
 from boss_tool.exporter import export_snapshot
 from boss_tool.history import HistoryStore
@@ -112,15 +113,16 @@ class BossToolApp:
         ).grid(row=12, column=0, sticky="w", pady=(0, 12))
 
         ttk.Button(control, text="保存配置", command=self.save_config, style="Primary.TButton").grid(row=13, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="立即扫描窗口", command=self.scan_now).grid(row=14, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="导入截图识别", command=self.import_image).grid(row=15, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="开始监控", command=self.start_monitoring).grid(row=16, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="停止监控", command=self.stop_monitoring).grid(row=17, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="导出本次结果", command=self.export_current_snapshot).grid(row=18, column=0, sticky="ew", pady=(0, 6))
-        ttk.Button(control, text="复制AI建议", command=self.copy_analysis).grid(row=19, column=0, sticky="ew", pady=(0, 10))
+        ttk.Button(control, text="启动Boss专用浏览器", command=self.launch_boss_browser).grid(row=14, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="立即扫描窗口", command=self.scan_now).grid(row=15, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="导入截图识别", command=self.import_image).grid(row=16, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="开始监控", command=self.start_monitoring).grid(row=17, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="停止监控", command=self.stop_monitoring).grid(row=18, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="导出本次结果", command=self.export_current_snapshot).grid(row=19, column=0, sticky="ew", pady=(0, 6))
+        ttk.Button(control, text="复制AI建议", command=self.copy_analysis).grid(row=20, column=0, sticky="ew", pady=(0, 10))
 
         info = ttk.Frame(control, style="App.TFrame")
-        info.grid(row=20, column=0, sticky="ew")
+        info.grid(row=21, column=0, sticky="ew")
         ttk.Label(info, text="状态", style="Soft.TLabel").pack(anchor="w")
         ttk.Label(info, textvariable=self.status_var, wraplength=240, background="#FFFFFF", foreground="#111827").pack(anchor="w", pady=(0, 8))
         ttk.Label(info, text="当前来源", style="Soft.TLabel").pack(anchor="w")
@@ -272,6 +274,15 @@ class BossToolApp:
         self.imported_image_path = image_path
         self._scan_async()
 
+    def launch_boss_browser(self) -> None:
+        try:
+            endpoint = start_dedicated_browser()
+        except Exception as exc:
+            self.status_var.set(f"启动专用浏览器失败: {exc}")
+            messagebox.showerror("启动专用浏览器失败", str(exc))
+            return
+        self.status_var.set(f"已启动Boss专用浏览器: {endpoint}")
+
     def _scan_async(self) -> None:
         if self.scan_future and not self.scan_future.done():
             self.status_var.set("上一次扫描还在进行，请稍候")
@@ -315,7 +326,10 @@ class BossToolApp:
         if self.imported_image_path:
             capture = ImageFileCapture(self.imported_image_path)
         else:
-            capture = BossWindowCapture(self.config)
+            capture = FallbackCapture(
+                BrowserDomSnapshotReader(),
+                BossWindowCapture(self.config),
+            )
         return BossInsightPipeline(
             capture_service=capture,
             ocr_service=self.ocr_service,
@@ -327,6 +341,8 @@ class BossToolApp:
         source_label = snapshot.window.title if snapshot.window.found else "未找到 Boss 窗口"
         if snapshot.diagnostics.get("capture_mode") == "imported_image":
             source_label = f"导入截图: {snapshot.window.title}"
+        elif snapshot.diagnostics.get("capture_mode") == "browser_dom":
+            source_label = f"浏览器DOM: {snapshot.window.title}"
         self.window_var.set(source_label)
 
         total_unread = sum(item.unread_count for item in snapshot.conversation_list)

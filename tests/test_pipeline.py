@@ -11,6 +11,28 @@ class FakeCapture:
         return snapshot
 
 
+class FakeDomCapture:
+    def scan(self) -> ScanSnapshot:
+        snapshot = ScanSnapshot.empty()
+        snapshot.window.found = True
+        snapshot.window.title = "BOSS直聘 - DOM"
+        snapshot.diagnostics["capture_mode"] = "browser_dom"
+        snapshot.conversation_list = [
+            ConversationSummary(
+                name="赵女士",
+                job_title="鼎昌电子信息技术 人事",
+                last_message="好的",
+                time_label="06月09日",
+                source="browser_dom",
+            )
+        ]
+        snapshot.current_candidate = CandidateProfile(name="赵女士", source="browser_dom")
+        snapshot.current_messages = [
+            ChatMessage(speaker="候选人", text="好的", source="browser_dom")
+        ]
+        return snapshot
+
+
 class FakeAnalyzer:
     def analyze_snapshot(self, snapshot: ScanSnapshot):
         return {"current_chat_summary": "summary"}
@@ -32,6 +54,22 @@ def test_pipeline_returns_analysis_dict() -> None:
     result = pipeline.run_scan()
 
     assert result.analysis["current_chat_summary"] == "summary"
+
+
+def test_pipeline_uses_browser_dom_snapshot_without_ocr_reparse() -> None:
+    pipeline = BossInsightPipeline(
+        capture_service=FakeDomCapture(),
+        ocr_service=FailingOcrService(),
+        vision_service=None,
+        analyzer=None,
+    )
+
+    result = pipeline.run_scan()
+
+    assert result.diagnostics["capture_mode"] == "browser_dom"
+    assert result.conversation_list[0].name == "赵女士"
+    assert result.current_messages[0].text == "好的"
+    assert result.analysis["unread_summary"]
 
 
 def test_pipeline_uses_local_analysis_when_no_analyzer() -> None:

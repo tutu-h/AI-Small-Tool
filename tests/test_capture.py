@@ -2,8 +2,9 @@ from pathlib import Path
 
 from PIL import Image
 
-from boss_tool.capture import BossWindowCapture, ImageFileCapture, segment_image
+from boss_tool.capture import BossWindowCapture, FallbackCapture, ImageFileCapture, segment_image
 from boss_tool.config import AppConfig
+from boss_tool.models import ConversationSummary, ScanSnapshot
 
 
 def test_segment_image_creates_expected_regions() -> None:
@@ -103,3 +104,52 @@ def test_window_capture_keeps_scanning_when_focus_fails() -> None:
         "candidate_header",
         "chat_body",
     }
+
+
+def test_fallback_capture_uses_dom_when_it_has_content() -> None:
+    dom_snapshot = ScanSnapshot.empty()
+    dom_snapshot.window.found = True
+    dom_snapshot.diagnostics["capture_mode"] = "browser_dom"
+    dom_snapshot.conversation_list = [
+        ConversationSummary("赵女士", "人事", "好的", "06月09日")
+    ]
+
+    class Primary:
+        def scan(self):
+            return dom_snapshot
+
+    class Fallback:
+        called = False
+
+        def scan(self):
+            self.called = True
+            return ScanSnapshot.empty()
+
+    fallback = Fallback()
+    result = FallbackCapture(Primary(), fallback).scan()
+
+    assert result is dom_snapshot
+    assert fallback.called is False
+
+
+def test_fallback_capture_uses_window_capture_when_dom_is_empty() -> None:
+    dom_snapshot = ScanSnapshot.empty()
+    dom_snapshot.diagnostics["capture_mode"] = "browser_dom"
+    dom_snapshot.diagnostics["warnings"] = ["未连接到 Boss 网页 DOM"]
+    window_snapshot = ScanSnapshot.empty()
+    window_snapshot.window.found = True
+    window_snapshot.window.title = "BOSS直聘 - Edge"
+
+    class Primary:
+        def scan(self):
+            return dom_snapshot
+
+    class Fallback:
+        def scan(self):
+            return window_snapshot
+
+    result = FallbackCapture(Primary(), Fallback()).scan()
+
+    assert result is window_snapshot
+    assert result.diagnostics["dom_fallback_used"] is True
+    assert "未连接到 Boss 网页 DOM" in result.diagnostics["warnings"]

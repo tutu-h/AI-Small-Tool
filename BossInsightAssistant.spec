@@ -1,17 +1,19 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 
 rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
+playwright_datas = collect_data_files('playwright')
+playwright_hiddenimports = collect_submodules('playwright')
 
 
 a = Analysis(
     ['src\\boss_tool\\app.py'],
     pathex=['src'],
     binaries=[],
-    datas=rapidocr_datas,
-    hiddenimports=[],
+    datas=rapidocr_datas + playwright_datas,
+    hiddenimports=playwright_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
