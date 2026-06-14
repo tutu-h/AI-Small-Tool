@@ -77,6 +77,29 @@ linfei928907
     ]
 
 
+def test_build_snapshot_from_dom_text_splits_compact_conversation_rows() -> None:
+    text = """
+赵女士 鼎昌电子信息技术 人事 06月09日 [已读]好的
+郭先生 武汉利正源科技 人事主管 06月09日 [已读]好的
+文女士 优联传媒 HR 昨天 帅哥，问你个问题呗
+赵女士
+Java中级开发工程师
+8-10K
+西安
+好的
+"""
+
+    snapshot = build_snapshot_from_dom_text(text, "BOSS直聘 - 招聘沟通")
+
+    assert [item.name for item in snapshot.conversation_list] == [
+        "赵女士",
+        "郭先生",
+        "文女士",
+    ]
+    assert snapshot.conversation_list[0].job_title == "鼎昌电子信息技术 人事"
+    assert snapshot.conversation_list[2].last_message == "帅哥，问你个问题呗"
+
+
 def test_dom_reader_returns_snapshot_from_active_boss_page() -> None:
     reader = BrowserDomSnapshotReader(page_provider=lambda: [FakePage("赵女士\n人事\n06月09日\n好的")])
 

@@ -74,7 +74,6 @@ class BrowserDomSnapshotReader:
             snapshots = []
             for page in pages:
                 snapshots.append(_PageTextSnapshot.from_page(page))
-            browser.close()
             return snapshots
 
     @staticmethod
@@ -296,11 +295,43 @@ def _clean_lines(text: str) -> list[str]:
         line = re.sub(r"\s+", " ", raw).strip()
         if not line:
             continue
+        compact_items = _split_compact_conversation_row(line)
+        if compact_items:
+            lines.extend(compact_items)
+            continue
         if line in CONTROL_TEXTS:
             lines.append(line)
             continue
         lines.append(line.replace("｜", " ").strip())
     return lines
+
+
+def _split_compact_conversation_row(line: str) -> list[str]:
+    match = re.match(
+        r"^(?P<name>[\u4e00-\u9fff]{1,5}(?:女士|先生))\s+"
+        r"(?P<middle>.+?)\s+"
+        r"(?P<time>\d{2}月\d{2}日|昨天|今天|刚刚|周[一二三四五六日天]|\d{1,2}:\d{2})"
+        r"(?:\s+(?P<message>.+))?$",
+        line,
+    )
+    if not match:
+        return []
+    items = [match.group("name")]
+    middle = match.group("middle").strip()
+    if middle:
+        items.extend(_split_company_job(middle))
+    items.append(match.group("time"))
+    message = (match.group("message") or "").strip()
+    if message:
+        items.append(message.removeprefix("[已读]").strip())
+    return [item for item in items if item]
+
+
+def _split_company_job(text: str) -> list[str]:
+    for marker in ("人事主管", "招聘专员", "人事", "HR", "行政人事", "人力资源主管"):
+        if text.endswith(marker) and len(text) > len(marker):
+            return [text[: -len(marker)].strip(), marker]
+    return [text]
 
 
 def _safe_page_title(page) -> str:
